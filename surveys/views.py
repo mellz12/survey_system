@@ -49,7 +49,7 @@ def survey_create(request):
                             choice_formset = ChoiceFormSet(request.POST, prefix=f'choices-{question_index}')
                             print(f"Choice formset for question {question_index} valid:", choice_formset.is_valid())
                             print(f"Choice formset errors for question {question_index}:", choice_formset.errors)
-                            print(f"Choice formset data for question {question_index}:", request.POST.getlist(f'choices-{question_index}-text'))
+                            print(f"Choice formset data for question {question_index}:", request.POST.getlist(f'choices-{question_index}-0-text'), request.POST.getlist(f'choices-{question_index}-1-text'))
                             if choice_formset.is_valid():
                                 for choice_form in choice_formset:
                                     if choice_form.cleaned_data:
@@ -57,15 +57,15 @@ def survey_create(request):
                                         choice.question = question
                                         choice.save()
                                         print(f"Saved choice for question {question_index}: {choice.id} - {choice.text}")
+                            else:
+                                print(f"Choice formset data for question {question_index}:", request.POST)
             return redirect('profile')
     else:
         form = SurveyForm()
         question_formset = QuestionFormSet(prefix='questions')
-        choice_formsets = [ChoiceFormSet(prefix=f'choices-{i}') for i in range(question_formset.total_form_count())]
     return render(request, 'survey_create.html', {
         'form': form,
-        'question_formset': question_formset,
-        'choice_formsets': choice_formsets
+        'question_formset': question_formset
     })
 
 @login_required

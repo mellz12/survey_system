@@ -57,14 +57,8 @@
                 </div>
                 <div class="choice-forms" style="display: none;">
                     <h5>Варианты ответа</h5>
-                    {{ choice_formsets.forloop.counter0.management_form }}
                     <div class="choices">
-                        {% for choice_form in choice_formsets|slice:forloop.counter0 %}
-                            <div class="mb-2 d-flex align-items-center">
-                                {{ choice_form.text }}
-                                <button type="button" class="btn btn-outline-danger btn-sm remove-choice ml-2">Удалить</button>
-                            </div>
-                        {% endfor %}
+                        <!-- Варианты будут добавлены через JS -->
                     </div>
                     <button type="button" class="btn btn-outline-secondary btn-sm mt-2 add-choice">Добавить вариант</button>
                 </div>
@@ -80,7 +74,6 @@
 </form>
 
 <script>
-    // Динамическое добавление вопросов
     const questionForms = document.getElementById('questionForms');
     const addQuestionButton = document.getElementById('addQuestion');
     let questionIndex = {{ question_formset.total_form_count }};
@@ -92,18 +85,6 @@
             input.id = input.id.replace(/questions-\d+-/, `questions-${questionIndex}-`);
             if (input.type !== 'checkbox') input.value = '';
         });
-
-        // Для choice formset management forms
-        questionForm.querySelectorAll('[name^="choices-"]').forEach(input => {
-            input.name = input.name.replace(/choices-\d+-/, `choices-${questionIndex}-`);
-            input.id = input.id.replace(/choices-\d+-/, `choices-${questionIndex}-`);
-            if (input.name.includes('TOTAL_FORMS')) input.value = '0';
-            if (input.name.includes('INITIAL_FORMS')) input.value = '0';
-            if (input.name.includes('MIN_NUM_FORMS')) input.value = '0';
-            if (input.name.includes('MAX_NUM_FORMS')) input.value = '1000';
-            if (input.type !== 'checkbox') input.value = '';
-        });
-
         questionForm.setAttribute('data-question-index', questionIndex);
         questionForm.querySelector('.choices').innerHTML = '';
         questionForms.appendChild(questionForm);
@@ -112,7 +93,6 @@
         updateChoiceForms();
     });
 
-    // Удаление вопроса
     questionForms.addEventListener('click', function(e) {
         if (e.target.classList.contains('remove-question') && questionForms.querySelectorAll('.question-form').length > 1) {
             e.target.closest('.question-form').remove();
@@ -121,7 +101,6 @@
         }
     });
 
-    // Показ/скрытие вариантов ответа
     function updateChoiceForms() {
         questionForms.querySelectorAll('.question-form').forEach(form => {
             const questionType = form.querySelector('select[name$="question_type"]').value;
@@ -130,36 +109,44 @@
         });
     }
 
-    // Динамическое добавление вариантов ответа
     questionForms.addEventListener('click', function(e) {
         if (e.target.classList.contains('add-choice')) {
             const questionForm = e.target.closest('.question-form');
             const questionIndex = questionForm.getAttribute('data-question-index');
             const choiceContainer = questionForm.querySelector('.choices');
+            const choiceIndex = choiceContainer.querySelectorAll('.choice-input').length;
             const newChoice = document.createElement('div');
             newChoice.className = 'mb-2 d-flex align-items-center';
             newChoice.innerHTML = `
-                <input type="text" class="form-control me-2" name="choices-${questionIndex}-text" placeholder="Вариант ответа">
+                <input type="text" class="form-control me-2 choice-input" name="choices-${questionIndex}-${choiceIndex}-text" placeholder="Вариант ответа">
                 <button type="button" class="btn btn-outline-danger btn-sm remove-choice">Удалить</button>
             `;
             choiceContainer.appendChild(newChoice);
 
-            // Обновление TOTAL_FORMS для choice_formset
-            const totalForms = questionForm.querySelector(`input[name="choices-${questionIndex}-TOTAL_FORMS"]`);
-            if (totalForms) {
-                totalForms.value = parseInt(totalForms.value) + 1;
+            // Добавляем скрытые поля management_form для ChoiceFormSet
+            let managementForm = questionForm.querySelector('.choice-management-form');
+            if (!managementForm) {
+                managementForm = document.createElement('div');
+                managementForm.className = 'choice-management-form';
+                managementForm.style.display = 'none';
+                managementForm.innerHTML = `
+                    <input type="hidden" name="choices-${questionIndex}-TOTAL_FORMS" value="0">
+                    <input type="hidden" name="choices-${questionIndex}-INITIAL_FORMS" value="0">
+                    <input type="hidden" name="choices-${questionIndex}-MIN_NUM_FORMS" value="0">
+                    <input type="hidden" name="choices-${questionIndex}-MAX_NUM_FORMS" value="1000">
+                `;
+                questionForm.appendChild(managementForm);
             }
+            const totalForms = questionForm.querySelector(`input[name="choices-${questionIndex}-TOTAL_FORMS"]`);
+            totalForms.value = parseInt(totalForms.value) + 1;
         }
     });
 
-    // Удаление варианта ответа
     questionForms.addEventListener('click', function(e) {
         if (e.target.classList.contains('remove-choice')) {
             const questionForm = e.target.closest('.question-form');
             const questionIndex = questionForm.getAttribute('data-question-index');
             e.target.closest('.mb-2').remove();
-
-            // Обновление TOTAL_FORMS
             const totalForms = questionForm.querySelector(`input[name="choices-${questionIndex}-TOTAL_FORMS"]`);
             if (totalForms) {
                 totalForms.value = parseInt(totalForms.value) - 1;
@@ -167,14 +154,12 @@
         }
     });
 
-    // Обновление при изменении типа вопроса
     questionForms.addEventListener('change', function(e) {
         if (e.target.name.includes('question_type')) {
             updateChoiceForms();
         }
     });
 
-    // Инициализация
     updateChoiceForms();
 </script>
 {% endblock %}
