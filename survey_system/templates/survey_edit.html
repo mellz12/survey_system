@@ -1,0 +1,36 @@
+{% extends 'base.html' %}
+
+{% block title %}Редактировать опрос: {{ survey.title }}{% endblock %}
+
+{% block content %}
+<h1>Редактировать опрос: {{ survey.title }}</h1>
+{% if form.errors %}
+    <div class="alert alert-danger">
+        {% for field in form %}
+            {% for error in field.errors %}
+                {{ error }}<br>
+            {% endfor %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+            {{ error }}<br>
+        {% endfor %}
+    </div>
+{% endif %}
+<form method="post">
+    {% csrf_token %}
+    <div class="mb-3">
+        <label for="title" class="form-label">Название опроса</label>
+        {{ form.title }}
+    </div>
+    <div class="mb-3 form-check">
+        {{ form.is_public }}
+        <label class="form-check-label" for="is_public">Публичный</label>
+    </div>
+    <div class="mb-3">
+        <label for="status" class="form-label">Статус</label>
+        {{ form.status }}
+    </div>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+    <a href="{% url 'profile' %}" class="btn btn-secondary">Отмена</a>
+</form>
+{% endblock %}

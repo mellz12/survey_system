@@ -1,0 +1,269 @@
+{% extends 'base.html' %}
+
+{% block title %}{{ survey.title }}{% endblock %}
+
+{% block content %}
+<h1>{{ survey.title }}</h1>
+
+{% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+{% else %}
+    {% if user.is_authenticated and user == survey.created_by %}
+        <h2>Статистика опроса</h2>
+        <canvas id="surveyChart" width="400" height="200"></canvas>
+        <div id="errorMessage" class="text-danger mb-3"></div>
+    {% endif %}
+
+    <h2>Пройти опрос</h2>
+    <div id="surveyForm" class="mt-3"></div>
+    <div id="formErrorMessage" class="text-danger mt-2"></div>
+    <button id="submitSurvey" class="btn btn-primary mt-3" style="display: none;">Отправить ответы</button>
+{% endif %}
+
+<script>
+    {% if not error %}
+        let accessToken = null;
+
+        fetch('/api/token/current/')
+            .then(response => {
+                if (!response.ok) {
+                    console.error('Ошибка получения токена:', response.status);
+                    return {};
+                }
+                return response.json();
+            })
+            .then(data => {
+                accessToken = data.access || null;
+                console.log('Токен получен:', accessToken);
+
+                {% if user.is_authenticated and user == survey.created_by %}
+                    const errorMessage = document.getElementById('errorMessage');
+                    let surveyChart = null;
+                    fetch(`/api/surveys/{{ survey.id }}/stats/`, {
+                        headers: accessToken ? { 'Authorization': `Bearer ${accessToken}` } : {}
+                    })
+                        .then(response => {
+                            if (!response.ok) {
+                                errorMessage.textContent = `Ошибка HTTP: ${response.status}`;
+                                throw new Error(`HTTP ошибка: ${response.status}`);
+                            }
+                            return response.json();
+                        })
+                        .then(data => {
+                            console.log('Данные статистики:', data);
+                            const ctx = document.getElementById('surveyChart').getContext('2d');
+                            if (surveyChart) {
+                                surveyChart.destroy();
+                            }
+                            if (data.length === 0) {
+                                errorMessage.textContent = 'Нет данных для этого опроса';
+                                return;
+                            }
+                            const question = data[0];
+                            if (question && (question.type === 'single_choice' || question.type === 'multiple_choice')) {
+                                surveyChart = new Chart(ctx, {
+                                    type: 'bar',
+                                    data: {
+                                        labels: question.answers.map(a => a.text),
+                                        datasets: [{
+                                            label: question.text,
+                                            data: question.answers.map(a => a.count),
+                                            backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
+                                        }]
+                                    },
+                                    options: {
+                                        responsive: true,
+                                        scales: {
+                                            y: { beginAtZero: true }
+                                        }
+                                    }
+                                });
+                            } else {
+                                errorMessage.textContent = 'Вопросы не поддерживаются для графика';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Ошибка:', error);
+                            errorMessage.textContent = `Ошибка: ${error.message}`;
+                        });
+                {% endif %}
+
+                const headers = {};
+                if (accessToken) {
+                    headers['Authorization'] = `Bearer ${accessToken}`;
+                }
+                fetch(`/api/surveys/{{ survey.id }}/`, { headers })
+                    .then(response => {
+                        if (!response.ok) {
+                            document.getElementById('formErrorMessage').textContent = `Ошибка загрузки опроса: ${response.status}`;
+                            throw new Error(`Ошибка загрузки опроса: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Данные опроса:', data);
+                        const surveyForm = document.getElementById('surveyForm');
+                        surveyForm.innerHTML = '';
+                        data.questions.forEach((question, index) => {
+                            const questionDiv = document.createElement('div');
+                            questionDiv.className = 'mb-3';
+                            questionDiv.innerHTML = `<h5>${index + 1}. ${question.text}${question.is_required ? ' <span class="text-danger">*</span>' : ''}</h5>`;
+                            if (question.question_type === 'single_choice') {
+                                if (question.choices && question.choices.length > 0) {
+                                    question.choices.forEach(choice => {
+                                        questionDiv.innerHTML += `
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="radio" name="question_${question.id}" value="${choice.id}" ${question.is_required ? 'required' : ''}>
+                                                <label class="form-check-label">${choice.text}</label>
+                                            </div>
+                                        `;
+                                    });
+                                } else {
+                                    questionDiv.innerHTML += `<p class="text-warning">Варианты ответа отсутствуют</p>`;
+                                }
+                            } else if (question.question_type === 'multiple_choice') {
+                                if (question.choices && question.choices.length > 0) {
+                                    question.choices.forEach(choice => {
+                                        questionDiv.innerHTML += `
+                                            <div class="form-check">
+                                                <input class="form-check-input" type="checkbox" name="question_${question.id}" value="${choice.id}">
+                                                <label class="form-check-label">${choice.text}</label>
+                                            </div>
+                                        `;
+                                    });
+                                } else {
+                                    questionDiv.innerHTML += `<p class="text-warning">Варианты ответа отсутствуют</p>`;
+                                }
+                            } else if (question.question_type === 'scale') {
+                                questionDiv.innerHTML += `
+                                    <input type="range" class="form-range" name="question_${question.id}" min="1" max="10" value="5" ${question.is_required ? 'required' : ''}>
+                                    <div class="d-flex justify-content-between">
+                                        <span>1</span><span>10</span>
+                                    </div>
+                                `;
+                            } else if (question.question_type === 'text') {
+                                questionDiv.innerHTML += `
+                                    <textarea class="form-control" name="question_${question.id}" rows="4" ${question.is_required ? 'required' : ''}></textarea>
+                                `;
+                            }
+                            surveyForm.appendChild(questionDiv);
+                        });
+                        document.getElementById('submitSurvey').style.display = data.questions.length > 0 ? 'block' : 'none';
+                    })
+                    .catch(error => {
+                        console.error('Ошибка:', error);
+                        document.getElementById('formErrorMessage').textContent = `Ошибка: ${error.message}`;
+                    });
+            });
+
+        document.getElementById('submitSurvey').addEventListener('click', function() {
+            const surveyId = {{ survey.id }};
+            const formData = new FormData();
+            const questions = document.querySelectorAll('#surveyForm .mb-3');
+            questions.forEach((questionDiv, index) => {
+                const inputs = questionDiv.querySelectorAll('input, textarea');
+                if (!inputs.length) return;
+                const questionId = inputs[0].name.split('_')[1];
+                const questionType = inputs[0].type === 'textarea' ? 'text' :
+                                     inputs[0].type === 'range' ? 'scale' :
+                                     inputs[0].type === 'radio' ? 'single_choice' : 'multiple_choice';
+
+                if (questionType === 'single_choice') {
+                    const selected = questionDiv.querySelector('input:checked');
+                    if (selected) {
+                        formData.append(`responses[${index}][question]`, questionId);
+                        formData.append(`responses[${index}][choice_answer]`, selected.value);
+                    }
+                } else if (questionType === 'multiple_choice') {
+                    const selected = questionDiv.querySelectorAll('input:checked');
+                    selected.forEach((choice, choiceIndex) => {
+                        formData.append(`responses[${index}][question]`, questionId);
+                        formData.append(`responses[${index}][choice_answer][${choiceIndex}]`, choice.value);
+                    });
+                } else if (questionType === 'scale') {
+                    const value = questionDiv.querySelector('input').value;
+                    formData.append(`responses[${index}][question]`, questionId);
+                    formData.append(`responses[${index}][scale_answer]`, value);
+                } else if (questionType === 'text') {
+                    const value = questionDiv.querySelector('textarea').value;
+                    formData.append(`responses[${index}][question]`, questionId);
+                    formData.append(`responses[${index}][text_answer]`, value);
+                }
+            });
+
+            const requiredQuestions = document.querySelectorAll('#surveyForm input[required], #surveyForm textarea[required]');
+            let isValid = true;
+            requiredQuestions.forEach(input => {
+                if (input.type === 'radio' && !document.querySelector(`input[name="${input.name}"]:checked`)) {
+                    isValid = false;
+                } else if ((input.type === 'range' || input.type === 'textarea') && !input.value) {
+                    isValid = false;
+                }
+            });
+            if (!isValid) {
+                document.getElementById('formErrorMessage').textContent = 'Заполните все обязательные поля';
+                return;
+            }
+
+            const headers = { 'Content-Type': 'application/json' };
+            if (accessToken) {
+                headers['Authorization'] = `Bearer ${accessToken}`;
+            }
+            fetch(`/api/sessions/`, {
+                method: 'POST',
+                headers: headers,
+                body: JSON.stringify({ survey: surveyId, ip_address: '127.0.0.1' })
+            })
+                .then(response => {
+                    if (!response.ok) {
+                        document.getElementById('formErrorMessage').textContent = `Ошибка создания сессии: ${response.status}`;
+                        throw new Error(`Ошибка создания сессии: ${response.status}`);
+                    }
+                    return response.json();
+                })
+                .then(session => {
+                    const responses = [];
+                    for (let [key, value] of formData.entries()) {
+                        const match = key.match(/responses\[(\d+)\]\[(\w+)\]/);
+                        if (match) {
+                            const index = match[1];
+                            const field = match[2];
+                            if (!responses[index]) responses[index] = { question: parseInt(formData.get(`responses[${index}][question]`)) };
+                            if (field === 'choice_answer') {
+                                if (!responses[index].choice_answer) responses[index].choice_answer = [];
+                                responses[index].choice_answer.push(parseInt(value));
+                            } else {
+                                responses[index][field] = field === 'scale_answer' ? parseInt(value) : value;
+                            }
+                        }
+                    }
+                    return Promise.all(responses.map(response =>
+                        fetch(`/api/responses/`, {
+                            method: 'POST',
+                            headers: headers,
+                            body: JSON.stringify({ ...response, session: session.id })
+                        })
+                    ));
+                })
+                .then(responses => Promise.all(responses.map(res => {
+                    if (!res.ok) {
+                        return res.text().then(text => {
+                            throw new Error(`Ошибка отправки ответа: ${res.status} - ${text}`);
+                        });
+                    }
+                    return res.json();
+                })))
+                .then(results => {
+                    document.getElementById('formErrorMessage').textContent = 'Ответы успешно отправлены!';
+                    document.getElementById('formErrorMessage').className = 'text-success';
+                    document.getElementById('surveyForm').innerHTML = '';
+                    document.getElementById('submitSurvey').style.display = 'none';
+                })
+                .catch(error => {
+                    console.error('Ошибка:', error);
+                    document.getElementById('formErrorMessage').textContent = `Ошибка: ${error.message}`;
+                });
+        });
+    {% endif %}
+</script>
+{% endblock %}

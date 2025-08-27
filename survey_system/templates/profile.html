@@ -1,0 +1,131 @@
+{% extends 'base.html' %}
+
+{% block title %}Мой профиль{% endblock %}
+
+{% block content %}
+<h1>Мой профиль</h1>
+<p><strong>Имя пользователя:</strong> {{ user.username }}</p>
+<p><strong>Email:</strong> {{ user.email|default:"Не указан" }}</p>
+
+<h2>Мои опросы</h2>
+<a href="{% url 'survey_create' %}" class="btn btn-primary mb-3">Создать опрос</a>
+{% if user.surveys.all %}
+    <ul class="list-group mb-3">
+    {% for survey in user.surveys.all %}
+        <li class="list-group-item d-flex justify-content-between align-items-center">
+            <a href="{% url 'survey_detail' survey.token %}">{{ survey.title }} ({{ survey.get_status_display }})</a>
+            <div>
+                <input type="text" class="form-control d-inline-block" style="width: 300px;" value="{{ request.scheme }}://{{ request.get_host }}{% url 'survey_detail' survey.token %}" readonly>
+                <button class="btn btn-sm btn-primary copy-link" data-clipboard-text="{{ request.scheme }}://{{ request.get_host }}{% url 'survey_detail' survey.token %}">Копировать</button>
+                <a href="{% url 'survey_edit' survey.id %}" class="btn btn-sm btn-warning">Редактировать</a>
+            </div>
+        </li>
+    {% endfor %}
+    </ul>
+{% else %}
+    <p>У вас нет созданных опросов.</p>
+{% endif %}
+
+<h2>Статистика опроса</h2>
+{% if user.surveys.all %}
+    <select id="surveySelect" class="form-select mb-3">
+        <option value="">Выберите опрос для статистики</option>
+        {% for survey in user.surveys.all %}
+            <option value="{{ survey.id }}">{{ survey.title }}</option>
+        {% endfor %}
+    </select>
+    <canvas id="surveyChart" width="400" height="200"></canvas>
+    <div id="errorMessage" class="text-danger"></div>
+{% else %}
+    <p>Нет опросов для отображения статистики.</p>
+{% endif %}
+
+<script>
+    let accessToken = null;
+    let surveyChart = null;
+
+    fetch('/api/token/current/')
+        .then(response => {
+            if (!response.ok) {
+                throw new Error(`Ошибка получения токена: ${response.status}`);
+            }
+            return response.json();
+        })
+        .then(data => {
+            accessToken = data.access;
+            console.log('Токен получен:', accessToken);
+        })
+        .catch(error => {
+            console.error('Ошибка:', error);
+            document.getElementById('errorMessage').textContent = `Ошибка: ${error.message}`;
+        });
+
+    const surveySelect = document.getElementById('surveySelect');
+    const errorMessage = document.getElementById('errorMessage');
+    if (surveySelect) {
+        surveySelect.addEventListener('change', function() {
+            const surveyId = this.value;
+            if (surveyId && accessToken) {
+                errorMessage.textContent = '';
+                fetch(`/api/surveys/${surveyId}/stats/`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                })
+                    .then(response => {
+                        if (!response.ok) {
+                            errorMessage.textContent = `Ошибка HTTP: ${response.status}`;
+                            throw new Error(`HTTP ошибка: ${response.status}`);
+                        }
+                        return response.json();
+                    })
+                    .then(data => {
+                        console.log('Данные API:', data);
+                        const ctx = document.getElementById('surveyChart').getContext('2d');
+                        if (surveyChart) {
+                            surveyChart.destroy();
+                        }
+                        if (data.length === 0) {
+                            errorMessage.textContent = 'Нет данных для выбранного опроса';
+                            return;
+                        }
+                        const question = data[0];
+                        if (question && (question.type === 'single_choice' || question.type === 'multiple_choice')) {
+                            surveyChart = new Chart(ctx, {
+                                type: 'bar',
+                                data: {
+                                    labels: question.answers.map(a => a.text),
+                                    datasets: [{
+                                        label: question.text,
+                                        data: question.answers.map(a => a.count),
+                                        backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56'],
+                                    }]
+                                },
+                                options: {
+                                    responsive: true,
+                                    scales: {
+                                        y: { beginAtZero: true }
+                                    }
+                                }
+                            });
+                        } else {
+                            errorMessage.textContent = 'Выбранный вопрос не поддерживается для графика';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Ошибка:', error);
+                        errorMessage.textContent = `Ошибка: ${error.message}`;
+                    });
+            } else if (!accessToken) {
+                errorMessage.textContent = 'Токен не получен, попробуйте перезагрузить страницу';
+            }
+        });
+    }
+
+    document.querySelectorAll('.copy-link').forEach(button => {
+        button.addEventListener('click', function() {
+            navigator.clipboard.writeText(this.getAttribute('data-clipboard-text'))
+                .then(() => alert('Ссылка скопирована!'))
+                .catch(err => console.error('Ошибка копирования:', err));
+        });
+    });
+</script>
+{% endblock %}

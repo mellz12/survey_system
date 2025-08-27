@@ -1,0 +1,180 @@
+{% extends 'base.html' %}
+
+{% block title %}Создать опрос{% endblock %}
+
+{% block content %}
+<h1>Создать новый опрос</h1>
+{% if form.errors or question_formset.errors %}
+    <div class="alert alert-danger">
+        {% for field in form %}
+            {% for error in field.errors %}
+                {{ error }}<br>
+            {% endfor %}
+        {% endfor %}
+        {% for error in form.non_field_errors %}
+            {{ error }}<br>
+        {% endfor %}
+        {% for question_form in question_formset %}
+            {% for field in question_form %}
+                {% for error in field.errors %}
+                    {{ error }}<br>
+                {% endfor %}
+            {% endfor %}
+        {% endfor %}
+    </div>
+{% endif %}
+<form method="post" id="surveyForm">
+    {% csrf_token %}
+    <div class="mb-3">
+        <label for="title" class="form-label">Название опроса</label>
+        {{ form.title }}
+    </div>
+    <div class="mb-3 form-check">
+        {{ form.is_public }}
+        <label class="form-check-label" for="is_public">Публичный</label>
+    </div>
+    <div class="mb-3">
+        <label for="status" class="form-label">Статус</label>
+        {{ form.status }}
+    </div>
+
+    <h2>Вопросы</h2>
+    <div id="questionForms">
+        {{ question_formset.management_form }}
+        {% for question_form in question_formset %}
+            <div class="question-form mb-4 p-3 border rounded" data-question-index="{{ forloop.counter0 }}">
+                <div class="mb-3">
+                    <label class="form-label">Текст вопроса</label>
+                    {{ question_form.text }}
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Тип вопроса</label>
+                    {{ question_form.question_type }}
+                </div>
+                <div class="mb-3 form-check">
+                    {{ question_form.is_required }}
+                    <label class="form-check-label" for="is_required">Обязательный</label>
+                </div>
+                <div class="choice-forms" style="display: none;">
+                    <h5>Варианты ответа</h5>
+                    {{ choice_formsets.forloop.counter0.management_form }}
+                    <div class="choices">
+                        {% for choice_form in choice_formsets|slice:forloop.counter0 %}
+                            <div class="mb-2 d-flex align-items-center">
+                                {{ choice_form.text }}
+                                <button type="button" class="btn btn-outline-danger btn-sm remove-choice ml-2">Удалить</button>
+                            </div>
+                        {% endfor %}
+                    </div>
+                    <button type="button" class="btn btn-outline-secondary btn-sm mt-2 add-choice">Добавить вариант</button>
+                </div>
+                <button type="button" class="btn btn-outline-danger btn-sm mt-3 remove-question">Удалить вопрос</button>
+            </div>
+        {% endfor %}
+    </div>
+    <button type="button" class="btn btn-outline-primary btn-sm mb-3" id="addQuestion">Добавить вопрос</button>
+    <div class="mt-3">
+        <button type="submit" class="btn btn-primary">Создать</button>
+        <a href="{% url 'profile' %}" class="btn btn-secondary">Отмена</a>
+    </div>
+</form>
+
+<script>
+    // Динамическое добавление вопросов
+    const questionForms = document.getElementById('questionForms');
+    const addQuestionButton = document.getElementById('addQuestion');
+    let questionIndex = {{ question_formset.total_form_count }};
+
+    addQuestionButton.addEventListener('click', function() {
+        const questionForm = questionForms.querySelector('.question-form').cloneNode(true);
+        questionForm.querySelectorAll('input, select').forEach(input => {
+            input.name = input.name.replace(/questions-\d+-/, `questions-${questionIndex}-`);
+            input.id = input.id.replace(/questions-\d+-/, `questions-${questionIndex}-`);
+            if (input.type !== 'checkbox') input.value = '';
+        });
+
+        // Для choice formset management forms
+        questionForm.querySelectorAll('[name^="choices-"]').forEach(input => {
+            input.name = input.name.replace(/choices-\d+-/, `choices-${questionIndex}-`);
+            input.id = input.id.replace(/choices-\d+-/, `choices-${questionIndex}-`);
+            if (input.name.includes('TOTAL_FORMS')) input.value = '0';
+            if (input.name.includes('INITIAL_FORMS')) input.value = '0';
+            if (input.name.includes('MIN_NUM_FORMS')) input.value = '0';
+            if (input.name.includes('MAX_NUM_FORMS')) input.value = '1000';
+            if (input.type !== 'checkbox') input.value = '';
+        });
+
+        questionForm.setAttribute('data-question-index', questionIndex);
+        questionForm.querySelector('.choices').innerHTML = '';
+        questionForms.appendChild(questionForm);
+        questionIndex++;
+        document.getElementById('id_questions-TOTAL_FORMS').value = questionIndex;
+        updateChoiceForms();
+    });
+
+    // Удаление вопроса
+    questionForms.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-question') && questionForms.querySelectorAll('.question-form').length > 1) {
+            e.target.closest('.question-form').remove();
+            questionIndex--;
+            document.getElementById('id_questions-TOTAL_FORMS').value = questionIndex;
+        }
+    });
+
+    // Показ/скрытие вариантов ответа
+    function updateChoiceForms() {
+        questionForms.querySelectorAll('.question-form').forEach(form => {
+            const questionType = form.querySelector('select[name$="question_type"]').value;
+            const choiceForms = form.querySelector('.choice-forms');
+            choiceForms.style.display = (questionType === 'single_choice' || questionType === 'multiple_choice') ? 'block' : 'none';
+        });
+    }
+
+    // Динамическое добавление вариантов ответа
+    questionForms.addEventListener('click', function(e) {
+        if (e.target.classList.contains('add-choice')) {
+            const questionForm = e.target.closest('.question-form');
+            const questionIndex = questionForm.getAttribute('data-question-index');
+            const choiceContainer = questionForm.querySelector('.choices');
+            const newChoice = document.createElement('div');
+            newChoice.className = 'mb-2 d-flex align-items-center';
+            newChoice.innerHTML = `
+                <input type="text" class="form-control me-2" name="choices-${questionIndex}-text" placeholder="Вариант ответа">
+                <button type="button" class="btn btn-outline-danger btn-sm remove-choice">Удалить</button>
+            `;
+            choiceContainer.appendChild(newChoice);
+
+            // Обновление TOTAL_FORMS для choice_formset
+            const totalForms = questionForm.querySelector(`input[name="choices-${questionIndex}-TOTAL_FORMS"]`);
+            if (totalForms) {
+                totalForms.value = parseInt(totalForms.value) + 1;
+            }
+        }
+    });
+
+    // Удаление варианта ответа
+    questionForms.addEventListener('click', function(e) {
+        if (e.target.classList.contains('remove-choice')) {
+            const questionForm = e.target.closest('.question-form');
+            const questionIndex = questionForm.getAttribute('data-question-index');
+            e.target.closest('.mb-2').remove();
+
+            // Обновление TOTAL_FORMS
+            const totalForms = questionForm.querySelector(`input[name="choices-${questionIndex}-TOTAL_FORMS"]`);
+            if (totalForms) {
+                totalForms.value = parseInt(totalForms.value) - 1;
+            }
+        }
+    });
+
+    // Обновление при изменении типа вопроса
+    questionForms.addEventListener('change', function(e) {
+        if (e.target.name.includes('question_type')) {
+            updateChoiceForms();
+        }
+    });
+
+    // Инициализация
+    updateChoiceForms();
+</script>
+{% endblock %}
